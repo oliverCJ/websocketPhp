@@ -1,0 +1,31 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Insert title here</title>
+<script>
+var ws = new WebSocket("ws://127.0.0.1:12345");
+ws.onopen = function(){
+    console.log("握手成功");
+};
+ws.onmessage = function(e){
+    console.log("message:" + e.data);
+};
+ws.onerror = function(){
+    console.log("error");
+};
+function send(){
+	ws.send("start");
+}
+function send2(){
+	ws.send("pro");
+}
+
+</script>
+</head>
+<body>
+<input type="text" value="" id="cmd" />
+<input type="button" value="send" onclick="send();" />
+<input type="button" value="send2" onclick="send2();" />
+</body>
+</html>
