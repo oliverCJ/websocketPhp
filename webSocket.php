@@ -62,15 +62,15 @@ class webSocket {
 							$this->handShake($user,$data);
 						}else{
 							$this->process($user,$data);
-							$user->heart = 1;
+							//$user->heart = 1;
 						}
 					}
 					
 					//执行心跳检测，检查客户端是否已经断开
-					$user->heart += 2;
-					if($user->heart == 1000){
+					//$user->heart += 2;
+					//if($user->heart == 1000){
 						//发送信息到客户端
-					}
+					//}
 				}
 			}
 			//释放cpu
@@ -94,9 +94,10 @@ class webSocket {
 	 * @param unknown_type $data
 	 */
 	private function send($user,$data){
-		if($data=='start'){
+		/* if($data=='start'){
 			$user->ssh->sshInfo = 'test';
-		}
+		} */
+		$this->out($data);
 		$msg = $this->enCode($user->ssh->sshInfo);
 		socket_write($user->socket, $msg,strlen($msg));
 	}
@@ -127,7 +128,7 @@ class webSocket {
 		$users->handle = false;
 		$users->heart = 1;
 		$ssh = new ssh();
-		$ssh->sshInfo = 'ssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\n';
+		$ssh->sshInfo = 'ssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nssh ceshi\r\nceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshiceshi';
 		$users->ssh = $ssh;
 		
 		array_push($this->users, $users);
@@ -188,12 +189,32 @@ class webSocket {
 	 * 编码
 	 */
 	private function enCode($msg){
-		$msg = preg_replace(array('/\r$/','/\n$/','/\r\n$/'), '', $msg);
+		$msg = preg_replace(array('/\r$/','/\n$/','/\r\n$/'), '<br>', $msg);
 		$frame = array();
-		$frame[0] = '81';
+		$frame[0] = '81';//FIN位必须是1，opcode必须是1（表示文本），所以必须以0x81开头
 		$len = strlen($msg);
-		$frame[1] = $len<16?'0'.dechex($len):dechex($len);
+		if($len<127){//数据长度小于127（0x7F）,因为mask位必须0，所以第3数据位最大为7，第四数据位最大为F
+			if($len<16){
+				$frame[1] = '0'.dechex($len);
+			}else{
+				$frame[1] = dechex($len);
+			}
+		}elseif($len<hexdec('FFFF')){//数据长度大于127（0x7F）,小于FFFF，则属于16位负载长度，长度数据位指定为0x7E(126)，然后2字节（4个数据位）的长度最大是FFFF
+			$frame[1] = dechex(126);
+			$hexNumber = dechex($len);
+			//填充数位到指定长度
+			//方法1
+			//$frame[1] .= sprintf('%04s',$hexNumber);
+			//方法2
+			$frame[1] .= str_pad($hexNumber, 4,'0',STR_PAD_LEFT );
+		}else{//数据长度大于FFFF，则属于64位负载长度，长度数据位指定为0x7F(127)
+			$frame[1] = dechex(127);
+			$frame[1] .= str_pad($hexNumber, 16,'0',STR_PAD_LEFT );
+		}
+		//$frame[1] = $len<16?'0'.dechex($len):dechex($len);
 		$frame[2] = $this->ord_hex($msg);
+		$this->out($len);
+		$this->out($frame);
 		$data = implode('',$frame);
 		return pack('H*',$data);
 	}
@@ -206,20 +227,43 @@ class webSocket {
 		$data = '';
 		$msg = unpack('H*', $str);
 		$head = substr($msg[1],0,2);
+		$this->out($msg);
 		if(hexdec($head{1})===8){
 			$data = false;
 		}else if(hexdec($head{1})===1){
-			$mask[] = hexdec(substr($msg[1],4,2));
-			$mask[] = hexdec(substr($msg[1],6,2));
-			$mask[] = hexdec(substr($msg[1],8,2));
-			$mask[] = hexdec(substr($msg[1],10,2));
-			$s = 12;
-			$e = strlen($msg[1])-2;
-			$n = 0;
+			$payLoadLen = hexdec(substr($msg[1],2,2))-128;
+			$this->out($payLoadLen);
+			if($payLoadLen<126){//当数据长度小于126
+				$mask[] = hexdec(substr($msg[1],4,2));
+				$mask[] = hexdec(substr($msg[1],6,2));
+				$mask[] = hexdec(substr($msg[1],8,2));
+				$mask[] = hexdec(substr($msg[1],10,2));
+				$s = 12;
+				$e = strlen($msg[1])-2;
+				$n = 0;
+				$this->out($mask);
+			}elseif($payLoadLen==126){//当数据长度等于126，后面2个字节（4个数位）表示数据长度，之后8位是掩码
+				$mask[] = hexdec(substr($msg[1],8,2));
+				$mask[] = hexdec(substr($msg[1],10,2));
+				$mask[] = hexdec(substr($msg[1],12,2));
+				$mask[] = hexdec(substr($msg[1],14,2));
+				$s = 16;
+				$e = strlen($msg[1])-2;
+				$n = 0;
+			}elseif($payLoadLen==127){//当数据长度等于126，后面8个字节（16个数位）表示数据长度，之后8位是掩码
+				$mask[] = hexdec(substr($msg[1],24,2));
+				$mask[] = hexdec(substr($msg[1],26,2));
+				$mask[] = hexdec(substr($msg[1],28,2));
+				$mask[] = hexdec(substr($msg[1],30,2));
+				$s = 32;
+				$e = strlen($msg[1])-2;
+				$n = 0;
+			}
+			
 			for($i=$s;$i<=$e;$i+=2){
 				$data .= chr($mask[$n%4]^hexdec(substr($msg[1],$i,2)));
 				$n++;
-			}
+			}			
 		}
 		return $data;
 	}
